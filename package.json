@@ -1,6 +1,12 @@
 {
-  "name": "companion-module-amp",
-  "version": "0.0.1",
+  "name": "amp",
+  "version": "1.0.0",
+	"api_version": "1.0.0",
+	"keywords": [ "Protocol" ],
+	"manufacturer": "Grass Valley",
+	"product": "AMP",
+	"shortname": "amp",
+	"homepage": "http://www.gvgdevelopers.com/concrete/apis/amp_protocol/",
   "description": "Companion module for Grass Valley AMP protocol",
   "main": "index.js",
   "scripts": {

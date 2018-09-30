@@ -252,11 +252,5 @@ instance.prototype.action = function(action) {
 	debug('action():', action.action);
 };
 
-instance.module_info = {
-	label: 'GV AMP VTR',
-	id: 'amp',
-	version: '0.0.1'
-};
-
 instance_skel.extendedBy(instance);
 exports = module.exports = instance;
