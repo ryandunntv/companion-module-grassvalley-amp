@@ -6,6 +6,7 @@ var log;
 // http://www.gvgdevelopers.com/concrete/apis/amp_protocol/
 // http://www.gvgdevelopers.com/Protocols/AMP_SDK/Docs/AMP%20at%20a%20glance.pdf
 // http://www.gvgdevelopers.com/concrete/index.php/download_file/-/view/11/ (K2_Protocol_Developers_Guide.pdf)
+// http://www.gvgdevelopers.com/concrete/index.php/download_file/-/view/10 (AMP Specification)
 
 function zpad(data, length) {
 	return ('0'.repeat(length) + data).substr(0-length);
@@ -55,7 +56,6 @@ instance.prototype.init = function() {
 
 instance.prototype.init_tcp = function() {
 	var self = this;
-	var receivebuffer = '';
 
 	if (self.socket !== undefined) {
 		self.socket.destroy();
@@ -79,45 +79,40 @@ instance.prototype.init_tcp = function() {
 		});
 
 		self.socket.on('data', function (chunk) {
-			var i = 0, line = '', offset = 0;
-			receivebuffer += chunk;
+			self.buffer = Buffer.concat([self.buffer, chunk]);
 
-			while ( (i = receivebuffer.indexOf('\n', offset)) !== -1) {
-				line = receivebuffer.substr(offset, i - offset);
-				offset = i + 1;
-				self.socket.emit('receiveline', line.toString());
-			}
-			receivebuffer = receivebuffer.substr(offset);
-		});
+			if (self.waiting_for_crat && self.buffer.length >= 4) {
+				var result = self.buffer.slice(0, 4).toString();
+				self.buffer = self.buffer.slice(4);
 
-		self.socket.on('receiveline', function (line) {
-			debug('GOT LINE:' + line);
-
-			if (self.waiting_for_crat) {
 				self.waiting_for_crat = false;
 
-				if (line.match(/1111/)) {
+				if (result.match(/1111/)) {
 					self.log('error', 'Error opening AMP socket, server said NAK');
 				}
-				else if (line.match(/1001/)) {
+				else if (result.match(/1001/)) {
 					// ACKed, ok
 				} else {
 					self.log('error', 'Unkown data received while connecting to device');
-					debug('Did not expect: ' + line);
+					debug('Did not expect: ' + result);
+				}
+			} else if (self.awaiting_reply) {
+				// todo,fix
+				if (self.buffer.length >= 4) {
+					var result = self.buffer.slice(0, 4).toString();
+					self.buffer = self.buffer.slice(4);
+
+					self.awaiting_reply = false;
+
+					if (result.match(/^1111/)) {
+						self.log('error', 'Got an error from server after last command');
+					}
+
+					if (self.command_queue.length > 0) {
+						self._sendCommand(self.command_queue.shift());
+					}
 				}
 			}
-			else if (self.awaiting_reply) {
-				self.awaiting_reply = false;
-
-				if (line.match(/^1111/)) {
-					self.log('error', 'Got an error from server after last command');
-				}
-
-				if (self.command_queue.length > 0) {
-					self._sendCommand(self.command_queue.shift());
-				}
-			}
-
 		});
 	}
 };
@@ -125,6 +120,8 @@ instance.prototype.init_tcp = function() {
 instance.prototype.initAMPSocket = function() {
 	var self = this;
 	var channel = self.config.channel;
+
+	self.buffer = new Buffer('');
 
 	if (channel !== undefined) {
 		self.waiting_for_crat = true;
