@@ -27,6 +27,7 @@ function instance(system, id, config) {
 
 	self.awaiting_reply = false;
 	self.command_queue = [];
+	self.files = [];
 
 	// super-constructor
 	instance_skel.apply(this, arguments);
@@ -81,32 +82,72 @@ instance.prototype.init_tcp = function() {
 		self.socket.on('data', function (chunk) {
 			self.buffer = Buffer.concat([self.buffer, chunk]);
 
+			console.log("AMP Buffer: ", self.buffer, self.buffer.toString());
+
 			if (self.waiting_for_crat && self.buffer.length >= 4) {
 				var result = self.buffer.slice(0, 4).toString();
 				self.buffer = self.buffer.slice(4);
 
 				self.waiting_for_crat = false;
+				/*setInterval(function () {
+					self.sendCommand('61200F');
+				}, 100);*/
 
 				if (result.match(/1111/)) {
 					self.log('error', 'Error opening AMP socket, server said NAK');
 				}
 				else if (result.match(/1001/)) {
 					// ACKed, ok
+
+					// Request file list
+					self.files.length = 0;
+					self.sendCommand('a2140000');
+					self.sendCommand('a115ff');
+
 				} else {
 					self.log('error', 'Unkown data received while connecting to device');
 					debug('Did not expect: ' + result);
 				}
 			} else if (self.awaiting_reply) {
-				// todo,fix
+
 				if (self.buffer.length >= 4) {
-					var result = self.buffer.slice(0, 4).toString();
-					self.buffer = self.buffer.slice(4);
+					var str = self.buffer.toString();
+					var cmd1 = parseInt(str[0], 16);
+					var count = parseInt(str[1], 16);
+					var cmd2 = parseInt(str[2] + str[3], 16);
 
-					self.awaiting_reply = false;
+//					console.log("cmd: " + cmd1 + " count " + count + " cmd2 " + cmd2, str.substr(0,4));
 
-					if (result.match(/^1111/)) {
-						self.log('error', 'Got an error from server after last command');
+					switch (cmd1) {
+						case 8:
+							if (cmd2 == 0x14) {
+								self.handleListFirstID();
+							} else
+							if (cmd2 == 0x8A) {
+								self.handleListNextID();
+							}
+							break;
+						case 1:
+							if (count == 0 && cmd2 == 1) { // ack
+								self.buffer = self.buffer.slice(4);
+							} else
+							if (count == 1 && cmd2 == 0x12) {
+								self.buffer = self.buffer.slice(6);
+								self.log('error', 'Error received on last command');
+								// Todo parse NAK bits
+							}
+							break;
+						case 7:
+							if (cmd2 == 0x20 && self.buffer.length >= 6 + (count * 2)) {
+								// Status info
+								var status = self.buffer.slice(4, 4 + (count * 2)).toString();
+								self.handleStatusInfo(status);
+								self.buffer = self.buffer.slice(6 + (count * 2));
+							}
 					}
+
+					// Todo: fiks
+					self.awaiting_reply = false;
 
 					if (self.command_queue.length > 0) {
 						self._sendCommand(self.command_queue.shift());
@@ -114,6 +155,62 @@ instance.prototype.init_tcp = function() {
 				}
 			}
 		});
+	}
+};
+
+instance.prototype.handleListFirstID = function() {
+	var self = this;
+	var buffer = self.buffer.toString();
+
+	debug('handleListFirstID: ', self.buffer[1], ' == a');
+	if (buffer[1] == '0' && self.buffer.length >= 6) {
+		debug('no clips');
+		self.buffer = self.buffer.slice(6);
+	} else if (buffer[1] == '8' && self.buffer.length >= 22) {
+		debug('Clip 8 byte mode ' + Buffer.from(self.buffer.slice(4, 4 + 16).toString(), 'hex').toString());
+
+		self.files.push(Buffer.from(self.buffer.slice(4, 4 + 16).toString(), 'hex').toString());
+		self.buffer = self.buffer.slice(4 + 16 + 2);
+	} else if (buffer[1] == 'A' || buffer[1] == 'a' && self.buffer.length >= 12) {
+		var len = parseInt(buffer.substr(4,4), 16);
+		debug("Going to try to read " + len + " bytes of clips");
+		var i = 0;
+
+		if (buffer.length < len*2) { return; }
+
+		while (len > 0 && 8+4+i < buffer.length) {
+			var len2 = parseInt(buffer.substr(8 + i, 4), 16);
+			var name = buffer.substr(8+i+4, len2 * 2);
+			debug("Clip: " + Buffer.from(name, 'hex').toString());
+			self.files.push(Buffer.from(name, 'hex').toString());
+			i += 4 + (len2 * 2);
+		}
+
+		self.buffer = self.buffer.slice(8 + (len * 2) + 2);
+		//console.log("File list: ", self.files);
+		self.actions();
+	}
+};
+
+instance.prototype.handleNextID = function() {
+	var self = this;
+	var buffer = self.buffer.toString();
+
+	//console.log("NEXTID_ EXTENDED: ", buffer, Buffer.from(buffer).toString());
+};
+
+instance.prototype.handleStatusInfo = function(status) {
+	var self = this;
+	var buf = Buffer.from(status, 'hex');
+
+	if (buf[1] & (1<<0)) {
+		debug('Status: PLAYING');
+	}
+	if (buf[1] & (1<<5)) {
+		debug('Status: STOP')
+	}
+	if (buf[1] & (1<<7)) {
+		debug('Status: STANDBY ON')
 	}
 };
 
@@ -125,7 +222,7 @@ instance.prototype.initAMPSocket = function() {
 
 	if (channel !== undefined) {
 		self.waiting_for_crat = true;
-		self.socket.send('CRAT' + zpad(channel.length + 3) + '2' + zpad(channel.length, 2) + channel + "\n");
+		self.socket.send('CRAT' + zpad(channel.length + 4) + '2' + zpad(channel.length, 2) + channel + "\n");
 	}
 };
 
@@ -189,6 +286,7 @@ instance.prototype.destroy = function() {
 	var self = this;
 
 	if (self.socket !== undefined) {
+		self.socket.send('STOP0000\n');
 		self.socket.destroy();
 	}
 
@@ -212,6 +310,15 @@ instance.prototype.actions = function(system) {
 					id: 'clip',
 					type: 'textinput',
 					regex: '/^\\S.*$/'
+				},
+				{
+					label: 'Clip name',
+					id: 'clipdd',
+					type: 'dropdown',
+					choices: [].concat(
+						[ {id: '', label: ' - None - '} ],
+						self.files.map(function (el) { return { id: el, label: el }; })
+					)
 				}
 			]
 		}
@@ -242,8 +349,8 @@ instance.prototype.action = function(action) {
 			break;
 
 		case 'loadclip':
-			self.sendCommand('4041');
-			self.sendCommand('4a14' + zpad(opt.clip.length + 2, 4) + zpad(opt.clip.length, 4) + str2hex(opt.clip));
+			var clip = opt.clipdd || opt.clip;
+			self.sendCommand('4a14' + zpad(clip.length + 2, 4) + zpad(clip.length, 4) + str2hex(clip));
 	}
 
 	debug('action():', action.action);
