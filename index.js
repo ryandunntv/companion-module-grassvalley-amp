@@ -222,7 +222,7 @@ instance.prototype.initAMPSocket = function() {
 
 	if (channel !== undefined) {
 		self.waiting_for_crat = true;
-		self.socket.send('CRAT' + zpad(channel.length + 5, 4) + '2' + zpad(channel.length, 2) + channel + "\n");
+		self.socket.send('CRAT' + zpad(channel.length + 3, 4) + '2' + zpad(channel.length, 2) + channel + "\n");
 	}
 };
 
