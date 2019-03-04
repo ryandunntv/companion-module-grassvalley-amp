@@ -321,6 +321,17 @@ instance.prototype.actions = function(system) {
 					)
 				}
 			]
+		},
+		'recordclip': {
+			label: 'Record clip',
+			options: [
+				{
+					label: 'Clip name',
+					id: 'clip',
+					type: 'textinput',
+					regex: '/^\\S.*$/'
+				}
+			]
 		}
 	});
 };
@@ -351,6 +362,14 @@ instance.prototype.action = function(action) {
 		case 'loadclip':
 			var clip = opt.clipdd || opt.clip;
 			self.sendCommand('4a14' + zpad(clip.length + 2, 4) + zpad(clip.length, 4) + str2hex(clip));
+			break;
+
+		case 'recordclip':
+			var clip = opt.clipdd || opt.clip;
+			// @todo Add a TC format (ffssmmhh)?
+			//                CMD Code      Actual Byte Count        TC Format      Clip Name Length        Clip Name
+			self.sendCommand('ae02' + zpad(clip.length + 2 + 4, 4) + '00000000' + zpad(clip.length, 4) + str2hex(clip));
+			break;
 	}
 
 	debug('action():', action.action);
