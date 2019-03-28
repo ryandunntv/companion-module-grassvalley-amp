@@ -116,7 +116,7 @@ instance.prototype.init_tcp = function() {
 					var count = parseInt(str[1], 16);
 					var cmd2 = parseInt(str[2] + str[3], 16);
 
-//					console.log("cmd: " + cmd1 + " count " + count + " cmd2 " + cmd2, str.substr(0,4));
+					// console.log("cmd: " + cmd1 + " count " + count + " cmd2 " + cmd2, str.substr(0,4));
 
 					switch (cmd1) {
 						case 8:
@@ -237,8 +237,13 @@ instance.prototype.sendCommand = function(command) {
 	}
 };
 
+instance.prototype._toHexLength = function(length) {
+	return parseInt(length).toString(16);
+}
+
 instance.prototype._sendCommand = function(command) {
-	var self = this;
+	var self = this,
+		send_command;
 
 	if (command.length > 9999) {
 		self.log('error', 'Internal error, command too long');
@@ -247,7 +252,9 @@ instance.prototype._sendCommand = function(command) {
 
 	if (self.socket !== undefined && self.socket.connected) {
 		self.awaiting_reply = true;
-		self.socket.send('CMDS' + zpad(command.length, 4) + command + "\n");
+		send_command = 'CMDS' + zpad(command.length, 4) + command;
+		debug('Sending command: ' + send_command);
+		self.socket.send(send_command + "\n");
 	} else {
 		debug('Socket not connected :(');
 	}
@@ -361,19 +368,48 @@ instance.prototype.action = function(action) {
 
 		case 'loadclip':
 			var clip = opt.clipdd || opt.clip;
-			self.sendCommand('4a14' + zpad(clip.length + 2, 4) + zpad(clip.length, 4) + str2hex(clip));
+			self.sendCommand(this._buildCommand('4A14', [
+				[clip, false, 4]
+			]));
 			break;
 
 		case 'recordclip':
 			var clip = opt.clipdd || opt.clip;
-			// @todo Add a TC format (ffssmmhh)?
-			//                CMD Code      Actual Byte Count        TC Format      Clip Name Length        Clip Name
-			self.sendCommand('ae02' + zpad(clip.length + 2 + 4, 4) + '00000000' + zpad(clip.length, 4) + str2hex(clip));
+			self.sendCommand(this._buildCommand('AE02', [
+				['00000000', 8], // TC
+				[clip, false, 4]
+			]));
 			break;
 	}
 
 	debug('action():', action.action);
-};
+}
+
+/**
+ * Builds a command that can be sent to the device
+ * Automatically calculates the actual byte count
+ * @returns String
+ */
+instance.prototype._buildCommand = function(name, list) {
+	// Bytes to hex
+	// Length (false if no length, see next)
+	// Add length before sending?
+	var command = '',
+		actual_byte_cnt = 0;
+
+	list.forEach(function(cmd_str) {
+		if(cmd_str[1] === false) {
+			actual_byte_cnt += cmd_str[0].length + (cmd_str[2] / 2);
+			command += zpad(cmd_str[0].length, cmd_str[2]).toString(16);
+			command += str2hex(cmd_str[0]);
+		} else {
+			actual_byte_cnt += cmd_str[1] / 2;
+			command += zpad(str2hex(cmd_str[0]), cmd_str[1]);
+		}
+	});
+
+	return name + zpad(actual_byte_cnt.toString(16), 4) + command;
+}
 
 instance_skel.extendedBy(instance);
 exports = module.exports = instance;
