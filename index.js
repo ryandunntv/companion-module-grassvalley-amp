@@ -374,7 +374,7 @@ instance.prototype.action = function(action) {
 			break;
 
 		case 'recordclip':
-			var clip = opt.clipdd || opt.clip;
+			var clip = opt.clip;
 			self.sendCommand(this._buildCommand('AE02', [
 				['00000000', 8], // TC
 				[clip, false, 4]
@@ -400,7 +400,7 @@ instance.prototype._buildCommand = function(name, list) {
 	list.forEach(function(cmd_str) {
 		if(cmd_str[1] === false) {
 			actual_byte_cnt += cmd_str[0].length + (cmd_str[2] / 2);
-			command += zpad(cmd_str[0].length, cmd_str[2]).toString(16);
+			command += zpad(cmd_str[0].length.toString(16), cmd_str[2]);
 			command += str2hex(cmd_str[0]);
 		} else {
 			actual_byte_cnt += cmd_str[1] / 2;
