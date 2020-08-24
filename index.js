@@ -232,9 +232,8 @@ class instance extends instance_skel {
 			} else {
 				this.current_transport_status = 'stopped';
 			}
-			['playing', 'stopped', 'ff', 'rw', 'recording'].forEach(this.checkFeedbacks.bind(this));
+			this.checkFeedbacks('transport');
 		}
-
 
 		this.transport_timer = setTimeout(this.statusUpdates.bind(this), this.TRANSPORT_UPDATES);
 	}
@@ -257,52 +256,42 @@ class instance extends instance_skel {
 	}
 
 	initFeedbacks() {
-		const default_opts = [
-			{
-				type: 'colorpicker',
-				label: 'Foreground color',
-				id: 'fg',
-				default: this.rgb(255, 255, 255)
-			},
-			{
-				type: 'colorpicker',
-				label: 'Background color',
-				id: 'bg',
-				default: this.rgb(255, 255, 255)
-			},
-			{
-				type: 'textinput',
-				label: 'Text',
-				id: 'text',
-				default: ''
-			}
-		];
-
 		const feedbacks = {
-			playing: {
-				label: 'Playing',
-				description: 'Indicates this is playing.',
-				options: default_opts
-			},
-			stopped: {
-				label: 'Stopped',
-				description: 'Indicates this is playing.',
-				options: default_opts
-			},
-			ff: {
-				label: 'Fast forward',
-				description: 'Indicates this is playing.',
-				options: default_opts
-			},
-			rw: {
-				label: 'Rewind',
-				description: 'Indicates this is playing.',
-				options: default_opts
-			},
-			recording: {
-				label: 'Recording',
-				description: 'Indicates this is playing.',
-				options: default_opts
+			transport: {
+				label: 'Transport state changes',
+				description: 'Changes feedback based on transport state',
+				options: [
+					{
+						type: 'dropdown',
+						label: 'Transport state',
+						id: 'transport_state',
+						choices: [
+							{ id: 'playing', label: 'Playing' },
+							{ id: 'stopped', label: 'Stopped' },
+							{ id: 'ff', label: 'Fast Forward' },
+							{ id: 'rw', label: 'Rewind' },
+							{ id: 'recording', label: 'Recording' }
+						]
+					},
+					{
+						type: 'colorpicker',
+						label: 'Foreground color',
+						id: 'fg',
+						default: this.rgb(255, 255, 255)
+					},
+					{
+						type: 'colorpicker',
+						label: 'Background color',
+						id: 'bg',
+						default: this.rgb(255, 255, 255)
+					},
+					{
+						type: 'textinput',
+						label: 'Text',
+						id: 'text',
+						default: ''
+					}
+				]
 			}
 		};
 
@@ -314,7 +303,7 @@ class instance extends instance_skel {
 	}
 
 	feedback(feedback, bank) {
-		if(feedback.type === this.current_transport_status) {
+		if(feedback.type === 'transport' && feedback.options.transport_state === this.current_transport_status) {
 			let ret = {};
 			if(feedback.options.fg !== 16777215 || feedback.options.bg !== 16777215) {
 				ret.color = feedback.options.fg;
