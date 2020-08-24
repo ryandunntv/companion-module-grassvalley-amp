@@ -1,12 +1,13 @@
-var tcp = require('../../tcp');
-var instance_skel = require('../../instance_skel');
-var debug;
-var log;
+const tcp = require('../../tcp');
+const instance_skel = require('../../instance_skel');
 
-// http://www.gvgdevelopers.com/concrete/apis/amp_protocol/
-// http://www.gvgdevelopers.com/Protocols/AMP_SDK/Docs/AMP%20at%20a%20glance.pdf
-// http://www.gvgdevelopers.com/concrete/index.php/download_file/-/view/11/ (K2_Protocol_Developers_Guide.pdf)
-// http://www.gvgdevelopers.com/concrete/index.php/download_file/-/view/10 (AMP Specification)
+/**
+ * AMP Protocol documentation:
+ * http://www.gvgdevelopers.com/concrete/apis/amp_protocol/
+ * http://www.gvgdevelopers.com/Protocols/AMP_SDK/Docs/AMP%20at%20a%20glance.pdf
+ * http://www.gvgdevelopers.com/concrete/index.php/download_file/-/view/11/ (K2_Protocol_Developers_Guide.pdf)
+ * http://www.gvgdevelopers.com/concrete/index.php/download_file/-/view/10 (AMP Specification)
+ */
 
 function zpad(data, length) {
 	return ('0'.repeat(length) + data).substr(0-length);
@@ -22,394 +23,423 @@ function str2hex(str) {
 	return result;
 }
 
-function instance(system, id, config) {
-	var self = this;
+class instance extends instance_skel {
+	constructor(system, id, config) {
+		super(system, id, config);
 
-	self.awaiting_reply = false;
-	self.command_queue = [];
-	self.files = [];
+		this.awaiting_reply = false;
+		this.command_queue = [];
+		this.files = [];
 
-	// super-constructor
-	instance_skel.apply(this, arguments);
+		// Number of ms to grab transport updates
+		this.defineConst('TRANSPORT_UPDATES', 2000);
+		// If we miss x status updates, let's attempt to reconnect
+		this.defineConst('TCP_TIMEOUT', this.TRANSPORT_UPDATES * 5);
 
-	self.actions(); // export actions
+		this.transport_bits = {
+			PLAY: {
+				bit: 0,
+				name: 'Playing',
+			},
+			RECORD: {
+				bit: 1,
+				name: 'Recording',
+			},
+			FF: {
+				bit: 2,
+				name: 'FF',
+			},
+			RW: {
+				bit: 3,
+				name: 'RW',
+			},
+			STOP: {
+				bit: 5, // Warning: this seems to always be 0 although documentation says it will be set
+				name: 'Stopped'
+			}
+		};
 
-	return self;
-}
+		this.actions(); // export actions
 
-instance.prototype.updateConfig = function(config) {
-	var self = this;
-
-	self.config = config;
-	self.init_tcp();
-};
-
-instance.prototype.init = function() {
-	var self = this;
-
-	debug = self.debug;
-	log = self.log;
-
-	self.status(self.STATE_UNKNOWN);
-
-	self.init_tcp();
-};
-
-instance.prototype.init_tcp = function() {
-	var self = this;
-
-	if (self.socket !== undefined) {
-		self.socket.destroy();
-		delete self.socket;
+		return this;
 	}
 
-	if (self.config.host) {
-		self.socket = new tcp(self.config.host, 3811);
+	updateConfig(config) {
+		this.config = config;
+		this.init_tcp();
+	}
 
-		self.socket.on('status_change', function (status, message) {
-			self.status(status, message);
-		});
+	init() {
+		this.status(this.STATE_UNKNOWN);
+		this.init_tcp();
+		this.initVariables();
+	}
 
-		self.socket.on('connect', function () {
-			self.initAMPSocket();
-		});
+	init_tcp() {
+		if (this.socket !== undefined) {
+			this.socket.destroy();
+			delete this.socket;
+		}
 
-		self.socket.on('error', function (err) {
-			debug("Network error", err);
-			self.log('error',"Network error: " + err.message);
-		});
+		if (this.config.host) {
+			this.socket = new tcp(this.config.host, 3811);
 
-		self.socket.on('data', function (chunk) {
-			self.buffer = Buffer.concat([self.buffer, chunk]);
+			this.socket.on('status_change', (status, message) => {
+				this.status(status, message);
+			});
 
-			console.log("AMP Buffer: ", self.buffer, self.buffer.toString());
+			this.socket.on('connect', () => {
+				this.socket.socket.setTimeout(this.TCP_TIMEOUT);
+				this.initAMPSocket();
+			});
 
-			if (self.waiting_for_crat && self.buffer.length >= 4) {
-				var result = self.buffer.slice(0, 4).toString();
-				self.buffer = self.buffer.slice(4);
+			this.socket.on('error', (err) => {
+				this.debug("Network error", err);
+				this.log('error',"Network error: " + err.message);
+			});
 
-				self.waiting_for_crat = false;
-				/*setInterval(function () {
-					self.sendCommand('61200F');
-				}, 100);*/
+			this.socket.socket.on('timeout', () => {
+				this.socket.socket.end();
+			});
 
-				if (result.match(/1111/)) {
-					self.log('error', 'Error opening AMP socket, server said NAK');
+			this.socket.on('end', () => {
+				if (this.transport_timer) {
+					clearTimeout(this.transport_timer);
 				}
-				else if (result.match(/1001/)) {
-					// ACKed, ok
+			});
 
-					// Request file list
-					self.files.length = 0;
-					self.sendCommand('a2140000');
-					self.sendCommand('a115ff');
+			this.socket.on('data', (chunk) => {
+				this.buffer = chunk;
 
-				} else {
-					self.log('error', 'Unkown data received while connecting to device');
-					debug('Did not expect: ' + result);
-				}
-			} else if (self.awaiting_reply) {
+				if (this.waiting_for_crat && this.buffer.length >= 4) {
+					var result = this.buffer.slice(0, 4).toString();
+					this.buffer = this.buffer.slice(4);
 
-				if (self.buffer.length >= 4) {
-					var str = self.buffer.toString();
-					var cmd1 = parseInt(str[0], 16);
-					var count = parseInt(str[1], 16);
-					var cmd2 = parseInt(str[2] + str[3], 16);
+					this.waiting_for_crat = false;
 
-					// console.log("cmd: " + cmd1 + " count " + count + " cmd2 " + cmd2, str.substr(0,4));
-
-					switch (cmd1) {
-						case 8:
-							if (cmd2 == 0x14) {
-								self.handleListFirstID();
-							} else
-							if (cmd2 == 0x8A) {
-								self.handleListNextID();
-							}
-							break;
-						case 1:
-							if (count == 0 && cmd2 == 1) { // ack
-								self.buffer = self.buffer.slice(4);
-							} else
-							if (count == 1 && cmd2 == 0x12) {
-								self.buffer = self.buffer.slice(6);
-								self.log('error', 'Error received on last command');
-								// Todo parse NAK bits
-							}
-							break;
-						case 7:
-							if (cmd2 == 0x20 && self.buffer.length >= 6 + (count * 2)) {
-								// Status info
-								var status = self.buffer.slice(4, 4 + (count * 2)).toString();
-								self.handleStatusInfo(status);
-								self.buffer = self.buffer.slice(6 + (count * 2));
-							}
+					if (result.match(/1111/)) {
+						this.log('error', 'Error opening AMP socket, server said NAK');
 					}
+					else if (result.match(/1001/)) {
+						// ACKed, ok
+						this.getFileList();
+					} else {
+						this.log('error', 'Unkown data received while connecting to device');
+						this.debug('Did not expect: ' + result);
+					}
+				} else if (this.awaiting_reply) {
+					if (this.buffer.length >= 4) {
+						var str = this.buffer.toString();
+						var cmd1 = parseInt(str[0], 16);
+						var count = parseInt(str[1], 16);
+						var cmd2 = parseInt(str[2] + str[3], 16);
 
-					// Todo: fiks
-					self.awaiting_reply = false;
+						switch (cmd1) {
+							case 8:
+								if (cmd2 == 0x14) {
+									this.handleListFirstID();
+								} else
+								if (cmd2 == 0x8A) {
+									this.handleListNextID();
+								}
+								break;
+							case 1:
+								if (count == 0 && cmd2 == 1) { // ack
+									this.buffer = this.buffer.slice(4);
+								} else
+								if (count == 1 && cmd2 == 0x12) {
+									this.buffer = this.buffer.slice(6);
+									this.log('error', 'Error received on last command');
+									// Todo parse NAK bits
+								}
+								break;
+							case 7:
+								if (cmd2 == 0x20 && count == 2) { // 72.20
+									this.handleTransportInfo(this.buffer);
+								}
+						}
 
-					if (self.command_queue.length > 0) {
-						self._sendCommand(self.command_queue.shift());
+						// Todo: fiks
+						this.awaiting_reply = false;
+
+						if (this.command_queue.length > 0) {
+							this._sendCommand(this.command_queue.shift());
+						}
 					}
 				}
+			});
+		}
+	}
+
+	getFileList() {
+		// @todo it'd probably be a good idea to refresh to file list every X minutes
+		this.files = [];
+		this.sendCommand('a2140000');
+		this.sendCommand('a115ff');
+	}
+
+	handleListFirstID() {
+		let buffer = this.buffer.toString();
+
+		this.debug('handleListFirstID: ', this.buffer[1], ' == a');
+		if (buffer[1] == '0' && this.buffer.length >= 6) {
+			this.debug('no clips');
+			this.buffer = this.buffer.slice(6);
+		} else if (buffer[1] == '8' && this.buffer.length >= 22) {
+			this.debug('Clip 8 byte mode ' + Buffer.from(this.buffer.slice(4, 4 + 16).toString(), 'hex').toString());
+
+			this.files.push(Buffer.from(this.buffer.slice(4, 4 + 16).toString(), 'hex').toString());
+			this.buffer = this.buffer.slice(4 + 16 + 2);
+		} else if (buffer[1] == 'A' || buffer[1] == 'a' && this.buffer.length >= 12) {
+			var len = parseInt(buffer.substr(4,4), 16);
+			this.debug("Going to try to read " + len + " bytes of clips");
+			var i = 0;
+
+			if (buffer.length < len*2) { return; }
+
+			while (len > 0 && 8+4+i < buffer.length) {
+				var len2 = parseInt(buffer.substr(8 + i, 4), 16);
+				var name = buffer.substr(8+i+4, len2 * 2);
+				this.debug("Clip: " + Buffer.from(name, 'hex').toString());
+				this.files.push(Buffer.from(name, 'hex').toString());
+				i += 4 + (len2 * 2);
+			}
+
+			this.buffer = this.buffer.slice(8 + (len * 2) + 2);
+			this.actions();
+		}
+	}
+
+	_getBit(byte, bit) {
+		return (byte >> bit) % 2;
+	}
+
+	handleTransportInfo(buffer) {
+		const bit_check = buffer.toString('utf8', 7, 8);
+
+		if (this._getBit(bit_check, this.transport_bits.RECORD.bit)) {
+			this.setVariable('transport', this.transport_bits.RECORD.name);
+		} else if (this._getBit(bit_check, this.transport_bits.PLAY.bit)) {
+			this.setVariable('transport', this.transport_bits.PLAY.name);
+		} else if (this._getBit(bit_check, this.transport_bits.FF.bit)) {
+			this.setVariable('transport', this.transport_bits.FF.name);
+		} else if (this._getBit(bit_check, this.transport_bits.RW.bit)) {
+			this.setVariable('transport', this.transport_bits.RW.name);
+		} else {
+			this.setVariable('transport', this.transport_bits.STOP.name);
+		}
+
+		this.transport_timer = setTimeout(this.statusUpdates.bind(this), this.TRANSPORT_UPDATES);
+	}
+
+	initAMPSocket() {
+		// We don't want to keep waiting for data that'll never come...
+		this.awaiting_reply = false;
+		this.command_queue = [];
+
+		const channel = this.config.channel;
+
+		this.buffer = new Buffer('');
+
+		if (channel !== undefined) {
+			this.waiting_for_crat = true;
+			this.socket.send('CRAT' + zpad(channel.length + 3, 4) + '2' + zpad(channel.length, 2) + channel + "\n");
+
+			this.transport_timer = setTimeout(this.statusUpdates.bind(this), this.TRANSPORT_UPDATES);
+		}
+	}
+
+	initVariables() {
+		const variables = [
+			{
+				label: 'Current transport status (' + (Object.values(this.transport_bits).map((i) => i.name)).join(', ') + ', Unknown)',
+				name:  'transport'
+			}
+		];
+
+		this.setVariableDefinitions(variables);
+		this.setVariable('transport', 'Unknown');
+	}
+
+	sendCommand(command) {
+		if (!this.awaiting_reply) {
+			this._sendCommand(command);
+		} else {
+			this.debug('queueing command ' + command);
+			this.command_queue.push(command);
+		}
+	}
+
+	statusUpdates() {
+		this.sendCommand('612002');
+	}
+
+	_toHexLength(length) {
+		return parseInt(length).toString(16);
+	}
+
+	_sendCommand(command) {
+		let send_command;
+
+		if (command.length > 9999) {
+			this.log('error', 'Internal error, command too long');
+			return;
+		}
+
+		if (this.socket !== undefined && this.socket.connected) {
+			this.awaiting_reply = true;
+			send_command = 'CMDS' + zpad(command.length, 4) + command;
+			this.debug('Sending command: ' + send_command);
+			this.socket.send(send_command + "\n");
+		} else {
+			this.debug('Socket not connected :(');
+		}
+	}
+
+	// Return config fields for web config
+	config_fields () {
+		return [
+			{
+				type: 'text',
+				id: 'info',
+				width: 12,
+				label: 'Information',
+				value: "This module connects to VTR's that support the AMP protocol"
+			},
+			{
+				type: 'textinput',
+				id: 'host',
+				label: 'Device IP',
+				width: 6,
+				regex: this.REGEX_IP
+			},
+			{
+				type: 'textinput',
+				id: 'channel',
+				label: 'AMP Channel',
+				width: 6,
+				default: 'Vtr1'
+			}
+		]
+	}
+
+	// When module gets deleted
+	destroy() {
+		if (this.socket !== undefined) {
+			this.socket.send('STOP0000\n');
+			this.socket.destroy();
+		}
+
+		this.debug("destroy", this.id);
+	}
+
+	actions(system) {
+		this.system.emit('instance_actions', this.id, {
+			'play': { label: 'Play' },
+			'stop': { label: 'Stop' },
+			'eject': { label: 'Eject' },
+			'record': { label: 'Record' },
+			'loadclip': {
+				label: 'Load clip',
+				options: [
+					{
+						label: 'Clip name',
+						id: 'clip',
+						type: 'textinput',
+						regex: '/^\\S.*$/'
+					},
+					{
+						label: 'Clip name',
+						id: 'clipdd',
+						type: 'dropdown',
+						choices: [].concat(
+							[ {id: '', label: ' - None - '} ],
+							this.files.map((el) => {
+								return { id: el, label: el }
+							})
+						)
+					}
+				]
+			},
+			'recordclip': {
+				label: 'Record clip',
+				options: [
+					{
+						label: 'Clip name',
+						id: 'clip',
+						type: 'textinput',
+						regex: '/^\\S.*$/'
+					}
+				]
 			}
 		});
 	}
-};
 
-instance.prototype.handleListFirstID = function() {
-	var self = this;
-	var buffer = self.buffer.toString();
+	action(action) {
+		let opt = action.options,
+			clip;
 
-	debug('handleListFirstID: ', self.buffer[1], ' == a');
-	if (buffer[1] == '0' && self.buffer.length >= 6) {
-		debug('no clips');
-		self.buffer = self.buffer.slice(6);
-	} else if (buffer[1] == '8' && self.buffer.length >= 22) {
-		debug('Clip 8 byte mode ' + Buffer.from(self.buffer.slice(4, 4 + 16).toString(), 'hex').toString());
+		switch (action.action) {
+			case 'play':
+				this.sendCommand('2001');
+				break;
 
-		self.files.push(Buffer.from(self.buffer.slice(4, 4 + 16).toString(), 'hex').toString());
-		self.buffer = self.buffer.slice(4 + 16 + 2);
-	} else if (buffer[1] == 'A' || buffer[1] == 'a' && self.buffer.length >= 12) {
-		var len = parseInt(buffer.substr(4,4), 16);
-		debug("Going to try to read " + len + " bytes of clips");
-		var i = 0;
+			case 'stop':
+				this.sendCommand('2000');
+				break;
 
-		if (buffer.length < len*2) { return; }
+			case 'eject':
+				this.sendCommand('200f');
+				break;
 
-		while (len > 0 && 8+4+i < buffer.length) {
-			var len2 = parseInt(buffer.substr(8 + i, 4), 16);
-			var name = buffer.substr(8+i+4, len2 * 2);
-			debug("Clip: " + Buffer.from(name, 'hex').toString());
-			self.files.push(Buffer.from(name, 'hex').toString());
-			i += 4 + (len2 * 2);
+			case 'record':
+				this.sendCommand('2002');
+				break;
+
+			case 'loadclip':
+				clip = opt.clipdd || opt.clip;
+				this.sendCommand(this._buildCommand('4A14', [
+					[clip, false, 4]
+				]));
+				break;
+
+			case 'recordclip':
+				clip = opt.clip;
+				this.sendCommand(this._buildCommand('AE02', [
+					['00000000', 8], // TC
+					[clip, false, 4]
+				]));
+				break;
 		}
 
-		self.buffer = self.buffer.slice(8 + (len * 2) + 2);
-		//console.log("File list: ", self.files);
-		self.actions();
+		this.debug('action():', action.action);
 	}
-};
 
-instance.prototype.handleNextID = function() {
-	var self = this;
-	var buffer = self.buffer.toString();
+	/**
+	 * Builds a command that can be sent to the device
+	 * Automatically calculates the actual byte count
+	 * @returns String
+	 */
+	_buildCommand(name, list) {
+		// Bytes to hex
+		// Length (false if no length, see next)
+		// Add length before sending?
+		let command = '',
+			actual_byte_cnt = 0;
 
-	//console.log("NEXTID_ EXTENDED: ", buffer, Buffer.from(buffer).toString());
-};
+		list.forEach(function(cmd_str) {
+			if(cmd_str[1] === false) {
+				actual_byte_cnt += cmd_str[0].length + (cmd_str[2] / 2);
+				command += zpad(cmd_str[0].length.toString(16), cmd_str[2]);
+				command += str2hex(cmd_str[0]);
+			} else {
+				actual_byte_cnt += cmd_str[1] / 2;
+				command += zpad(str2hex(cmd_str[0]), cmd_str[1]);
+			}
+		});
 
-instance.prototype.handleStatusInfo = function(status) {
-	var self = this;
-	var buf = Buffer.from(status, 'hex');
-
-	if (buf[1] & (1<<0)) {
-		debug('Status: PLAYING');
+		return name + zpad(actual_byte_cnt.toString(16), 4) + command;
 	}
-	if (buf[1] & (1<<5)) {
-		debug('Status: STOP')
-	}
-	if (buf[1] & (1<<7)) {
-		debug('Status: STANDBY ON')
-	}
-};
-
-instance.prototype.initAMPSocket = function() {
-	var self = this;
-	var channel = self.config.channel;
-
-	self.buffer = new Buffer('');
-
-	if (channel !== undefined) {
-		self.waiting_for_crat = true;
-		self.socket.send('CRAT' + zpad(channel.length + 3, 4) + '2' + zpad(channel.length, 2) + channel + "\n");
-	}
-};
-
-instance.prototype.sendCommand = function(command) {
-	var self = this;
-
-	if (!self.awaiting_reply) {
-		self._sendCommand(command);
-	} else {
-		debug('queueing command ' + command);
-		self.command_queue.push(command);
-	}
-};
-
-instance.prototype._toHexLength = function(length) {
-	return parseInt(length).toString(16);
 }
 
-instance.prototype._sendCommand = function(command) {
-	var self = this,
-		send_command;
-
-	if (command.length > 9999) {
-		self.log('error', 'Internal error, command too long');
-		return;
-	}
-
-	if (self.socket !== undefined && self.socket.connected) {
-		self.awaiting_reply = true;
-		send_command = 'CMDS' + zpad(command.length, 4) + command;
-		debug('Sending command: ' + send_command);
-		self.socket.send(send_command + "\n");
-	} else {
-		debug('Socket not connected :(');
-	}
-};
-
-// Return config fields for web config
-instance.prototype.config_fields = function () {
-	var self = this;
-	return [
-		{
-			type: 'text',
-			id: 'info',
-			width: 12,
-			label: 'Information',
-			value: "This module connects to VTR's that support the AMP protocol"
-		},
-		{
-			type: 'textinput',
-			id: 'host',
-			label: 'Device IP',
-			width: 6,
-			regex: self.REGEX_IP
-		},
-		{
-			type: 'textinput',
-			id: 'channel',
-			label: 'AMP Channel',
-			width: 6,
-			default: 'Vtr1'
-		}
-	]
-};
-
-// When module gets deleted
-instance.prototype.destroy = function() {
-	var self = this;
-
-	if (self.socket !== undefined) {
-		self.socket.send('STOP0000\n');
-		self.socket.destroy();
-	}
-
-	debug("destroy", self.id);
-};
-
-
-instance.prototype.actions = function(system) {
-	var self = this;
-
-	self.system.emit('instance_actions', self.id, {
-		'play': { label: 'Play' },
-		'stop': { label: 'Stop' },
-		'eject': { label: 'Eject' },
-		'record': { label: 'Record' },
-		'loadclip': {
-			label: 'Load clip',
-			options: [
-				{
-					label: 'Clip name',
-					id: 'clip',
-					type: 'textinput',
-					regex: '/^\\S.*$/'
-				},
-				{
-					label: 'Clip name',
-					id: 'clipdd',
-					type: 'dropdown',
-					choices: [].concat(
-						[ {id: '', label: ' - None - '} ],
-						self.files.map(function (el) { return { id: el, label: el }; })
-					)
-				}
-			]
-		},
-		'recordclip': {
-			label: 'Record clip',
-			options: [
-				{
-					label: 'Clip name',
-					id: 'clip',
-					type: 'textinput',
-					regex: '/^\\S.*$/'
-				}
-			]
-		}
-	});
-};
-
-instance.prototype.action = function(action) {
-	var self = this;
-	var cmd;
-	var opt = action.options;
-
-	switch (action.action) {
-
-		case 'play':
-			self.sendCommand('2001');
-			break;
-
-		case 'stop':
-			self.sendCommand('2000');
-			break;
-
-		case 'eject':
-			self.sendCommand('200f');
-			break;
-
-		case 'record':
-			self.sendCommand('2002');
-			break;
-
-		case 'loadclip':
-			var clip = opt.clipdd || opt.clip;
-			self.sendCommand(this._buildCommand('4A14', [
-				[clip, false, 4]
-			]));
-			break;
-
-		case 'recordclip':
-			var clip = opt.clip;
-			self.sendCommand(this._buildCommand('AE02', [
-				['00000000', 8], // TC
-				[clip, false, 4]
-			]));
-			break;
-	}
-
-	debug('action():', action.action);
-}
-
-/**
- * Builds a command that can be sent to the device
- * Automatically calculates the actual byte count
- * @returns String
- */
-instance.prototype._buildCommand = function(name, list) {
-	// Bytes to hex
-	// Length (false if no length, see next)
-	// Add length before sending?
-	var command = '',
-		actual_byte_cnt = 0;
-
-	list.forEach(function(cmd_str) {
-		if(cmd_str[1] === false) {
-			actual_byte_cnt += cmd_str[0].length + (cmd_str[2] / 2);
-			command += zpad(cmd_str[0].length.toString(16), cmd_str[2]);
-			command += str2hex(cmd_str[0]);
-		} else {
-			actual_byte_cnt += cmd_str[1] / 2;
-			command += zpad(str2hex(cmd_str[0]), cmd_str[1]);
-		}
-	});
-
-	return name + zpad(actual_byte_cnt.toString(16), 4) + command;
-}
-
-instance_skel.extendedBy(instance);
 exports = module.exports = instance;
