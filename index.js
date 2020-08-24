@@ -265,6 +265,7 @@ class instance extends instance_skel {
 						type: 'dropdown',
 						label: 'Transport state',
 						id: 'transport_state',
+						default: 'playing',
 						choices: [
 							{ id: 'playing', label: 'Playing' },
 							{ id: 'stopped', label: 'Stopped' },
