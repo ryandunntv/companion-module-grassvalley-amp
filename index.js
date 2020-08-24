@@ -30,6 +30,8 @@ class instance extends instance_skel {
 		this.awaiting_reply = false;
 		this.command_queue = [];
 		this.files = [];
+		this.last_bit_check = null;
+		this.current_transport_status = null;
 
 		// Number of ms to grab transport updates
 		this.defineConst('TRANSPORT_UPDATES', 2000);
@@ -72,7 +74,7 @@ class instance extends instance_skel {
 	init() {
 		this.status(this.STATE_UNKNOWN);
 		this.init_tcp();
-		this.initVariables();
+		this.initFeedbacks();
 	}
 
 	init_tcp() {
@@ -217,17 +219,22 @@ class instance extends instance_skel {
 	handleTransportInfo(buffer) {
 		const bit_check = buffer.toString('utf8', 7, 8);
 
-		if (this._getBit(bit_check, this.transport_bits.RECORD.bit)) {
-			this.setVariable('transport', this.transport_bits.RECORD.name);
-		} else if (this._getBit(bit_check, this.transport_bits.PLAY.bit)) {
-			this.setVariable('transport', this.transport_bits.PLAY.name);
-		} else if (this._getBit(bit_check, this.transport_bits.FF.bit)) {
-			this.setVariable('transport', this.transport_bits.FF.name);
-		} else if (this._getBit(bit_check, this.transport_bits.RW.bit)) {
-			this.setVariable('transport', this.transport_bits.RW.name);
-		} else {
-			this.setVariable('transport', this.transport_bits.STOP.name);
+		if (bit_check !== this.last_bit_check) {
+			this.last_bit_check = bit_check;
+			if (this._getBit(bit_check, this.transport_bits.RECORD.bit)) {
+				this.current_transport_status = 'recording';
+			} else if (this._getBit(bit_check, this.transport_bits.PLAY.bit)) {
+				this.current_transport_status = 'playing';
+			} else if (this._getBit(bit_check, this.transport_bits.FF.bit)) {
+				this.current_transport_status = 'ff';
+			} else if (this._getBit(bit_check, this.transport_bits.RW.bit)) {
+				this.current_transport_status = 'rw';
+			} else {
+				this.current_transport_status = 'stopped';
+			}
+			['playing', 'stopped', 'ff', 'rw', 'recording'].forEach(this.checkFeedbacks.bind(this));
 		}
+
 
 		this.transport_timer = setTimeout(this.statusUpdates.bind(this), this.TRANSPORT_UPDATES);
 	}
@@ -249,16 +256,76 @@ class instance extends instance_skel {
 		}
 	}
 
-	initVariables() {
-		const variables = [
+	initFeedbacks() {
+		const default_opts = [
 			{
-				label: 'Current transport status (' + (Object.values(this.transport_bits).map((i) => i.name)).join(', ') + ', Unknown)',
-				name:  'transport'
+				type: 'colorpicker',
+				label: 'Foreground color',
+				id: 'fg',
+				default: this.rgb(255, 255, 255)
+			},
+			{
+				type: 'colorpicker',
+				label: 'Background color',
+				id: 'bg',
+				default: this.rgb(255, 255, 255)
+			},
+			{
+				type: 'textinput',
+				label: 'Text',
+				id: 'text',
+				default: ''
 			}
 		];
 
-		this.setVariableDefinitions(variables);
-		this.setVariable('transport', 'Unknown');
+		const feedbacks = {
+			playing: {
+				label: 'Playing',
+				description: 'Indicates this is playing.',
+				options: default_opts
+			},
+			stopped: {
+				label: 'Stopped',
+				description: 'Indicates this is playing.',
+				options: default_opts
+			},
+			ff: {
+				label: 'Fast forward',
+				description: 'Indicates this is playing.',
+				options: default_opts
+			},
+			rw: {
+				label: 'Rewind',
+				description: 'Indicates this is playing.',
+				options: default_opts
+			},
+			recording: {
+				label: 'Recording',
+				description: 'Indicates this is playing.',
+				options: default_opts
+			}
+		};
+
+		this.setFeedbackDefinitions(feedbacks);
+
+		for(let feedback in feedbacks) {
+			this.checkFeedbacks(feedback);
+		}
+	}
+
+	feedback(feedback, bank) {
+		if(feedback.type === this.current_transport_status) {
+			let ret = {};
+			if(feedback.options.fg !== 16777215 || feedback.options.bg !== 16777215) {
+				ret.color = feedback.options.fg;
+				ret.bgcolor = feedback.options.bg;
+			}
+			if('text' in feedback.options && feedback.options.text !== '') {
+				ret.text = feedback.options.text;
+			}
+
+			return ret;
+		}
 	}
 
 	sendCommand(command) {
