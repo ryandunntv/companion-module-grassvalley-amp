@@ -31,7 +31,7 @@ class instance extends instance_skel {
 		this.command_queue = [];
 		this.files = [];
 		this.last_bit_check = null;
-		this.current_transport_status = null;
+		this.current_transport_status = 'UNKNOWN';
 
 		// Number of ms to grab transport updates
 		this.defineConst('TRANSPORT_UPDATES', 2000);
@@ -40,24 +40,28 @@ class instance extends instance_skel {
 
 		this.transport_bits = {
 			PLAY: {
-				bit: 0,
-				name: 'Playing',
+				id: 0,
+				label: 'Playing',
 			},
 			RECORD: {
-				bit: 1,
-				name: 'Recording',
+				id: 1,
+				label: 'Recording',
 			},
 			FF: {
-				bit: 2,
-				name: 'FF',
+				id: 2,
+				label: 'FF',
 			},
 			RW: {
-				bit: 3,
-				name: 'RW',
+				id: 3,
+				label: 'RW',
 			},
 			STOP: {
-				bit: 5, // Warning: this seems to always be 0 although documentation says it will be set
-				name: 'Stopped'
+				id: 5, // Warning: this seems to always be 0 although documentation says it will be set
+				label: 'Stopped'
+			},
+			UNKNOWN: {
+				id: -1,
+				label: 'Unknown'
 			}
 		};
 
@@ -76,6 +80,7 @@ class instance extends instance_skel {
 		this.status(this.STATE_UNKNOWN);
 		this.init_tcp();
 		this.initFeedbacks();
+		this.initVariables();
 	}
 
 	init_tcp() {
@@ -221,17 +226,18 @@ class instance extends instance_skel {
 
 		if (bit_check !== this.last_bit_check) {
 			this.last_bit_check = bit_check;
-			if (this._getBit(bit_check, this.transport_bits.RECORD.bit)) {
-				this.current_transport_status = 'recording';
-			} else if (this._getBit(bit_check, this.transport_bits.PLAY.bit)) {
-				this.current_transport_status = 'playing';
-			} else if (this._getBit(bit_check, this.transport_bits.FF.bit)) {
-				this.current_transport_status = 'ff';
-			} else if (this._getBit(bit_check, this.transport_bits.RW.bit)) {
-				this.current_transport_status = 'rw';
+			if (this._getBit(bit_check, this.transport_bits.RECORD.id)) {
+				this.current_transport_status = 'RECORD';
+			} else if (this._getBit(bit_check, this.transport_bits.PLAY.id)) {
+				this.current_transport_status = 'PLAY';
+			} else if (this._getBit(bit_check, this.transport_bits.FF.id)) {
+				this.current_transport_status = 'FF';
+			} else if (this._getBit(bit_check, this.transport_bits.RW.id)) {
+				this.current_transport_status = 'RW';
 			} else {
-				this.current_transport_status = 'stopped';
+				this.current_transport_status = 'STOP';
 			}
+			this.setVariable('transport', this.transport_bits[this.current_transport_status].label);
 			this.checkFeedbacks('transport');
 		}
 
@@ -265,14 +271,8 @@ class instance extends instance_skel {
 						type: 'dropdown',
 						label: 'Transport state',
 						id: 'transport_state',
-						default: 'playing',
-						choices: [
-							{ id: 'playing', label: 'Playing' },
-							{ id: 'stopped', label: 'Stopped' },
-							{ id: 'ff', label: 'Fast Forward' },
-							{ id: 'rw', label: 'Rewind' },
-							{ id: 'recording', label: 'Recording' }
-						]
+						default: this.transport_bits[this.current_transport_status].id,
+						choices: Object.values(this.transport_bits)
 					},
 					{
 						type: 'colorpicker',
@@ -303,8 +303,20 @@ class instance extends instance_skel {
 		}
 	}
 
+	initVariables() {
+		const variables = [
+			{
+				label: 'Transport status',
+				name:  'transport'
+			}
+		];
+
+		this.setVariableDefinitions(variables);
+		this.setVariable('transport', this.transport_bits[this.current_transport_status].label);
+	}
+
 	feedback(feedback, bank) {
-		if(feedback.type === 'transport' && feedback.options.transport_state === this.current_transport_status) {
+		if(feedback.type === 'transport' && feedback.options.transport_state === this.transport_bits[this.current_transport_status].id) {
 			let ret = {};
 			if(feedback.options.fg !== 16777215 || feedback.options.bg !== 16777215) {
 				ret.color = feedback.options.fg;

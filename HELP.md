@@ -16,7 +16,7 @@ This module connects to devices that support the AMP protocol.
 * Record clip - This creates and loads a clip for recording. To start the recording, enter the record command after sending this command. **WARNING** This command *will overwrite any clip already named what is specified currently in the bin* - there is not any error checking before running it by the device.
 
 ### Feedbacks
-#### Transport feedbacks
+#### Transport feedbacks and variables
 * Playing
 * Stopped
 * Fast forward
