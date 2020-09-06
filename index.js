@@ -62,13 +62,14 @@ class instance extends instance_skel {
 		};
 
 		this.actions(); // export actions
-
-		return this;
 	}
 
 	updateConfig(config) {
+		if (this.config.host !== config.host || this.config.channel !== config.channel) {
+			this.init_tcp();
+		}
+
 		this.config = config;
-		this.init_tcp();
 	}
 
 	init() {
@@ -79,8 +80,7 @@ class instance extends instance_skel {
 
 	init_tcp() {
 		if (this.socket !== undefined) {
-			this.socket.destroy();
-			delete this.socket;
+			this.destroy();
 		}
 
 		if (this.config.host) {
@@ -388,6 +388,7 @@ class instance extends instance_skel {
 			if (this.transport_timer) {
 				clearTimeout(this.transport_timer);
 			}
+			delete this.socket;
 		}
 
 		this.debug("destroy", this.id);
