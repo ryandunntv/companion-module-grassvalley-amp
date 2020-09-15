@@ -69,11 +69,12 @@ class instance extends instance_skel {
 	}
 
 	updateConfig(config) {
-		if (this.config.host !== config.host || this.config.channel !== config.channel) {
-			this.init_tcp();
-		}
+		let reconnect = this.config.host !== config.host || this.config.channel !== config.channel;
 
 		this.config = config;
+		if (reconnect) {
+			this.init_tcp();
+		}
 	}
 
 	init() {
