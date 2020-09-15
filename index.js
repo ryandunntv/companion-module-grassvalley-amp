@@ -450,8 +450,7 @@ class instance extends instance_skel {
 	}
 
 	action(action) {
-		let opt = action.options,
-			clip;
+		let opt = action.options;
 
 		switch (action.action) {
 			case 'play':
@@ -471,18 +470,20 @@ class instance extends instance_skel {
 				break;
 
 			case 'loadclip':
-				clip = opt.clipdd || opt.clip;
-				this.sendCommand(this._buildCommand('4A14', [
-					[clip, false, 4]
-				]));
+				this.system.emit('variable_parse', opt.clipdd || opt.clip, (parsed_clip) => {
+					this.sendCommand(this._buildCommand('4A14', [
+						[parsed_clip, false, 4]
+					]));
+				});
 				break;
 
 			case 'recordclip':
-				clip = opt.clip;
-				this.sendCommand(this._buildCommand('AE02', [
-					['00000000', 8], // TC
-					[clip, false, 4]
-				]));
+				this.system.emit('variable_parse', opt.clip, (parsed_clip) => {
+					this.sendCommand(this._buildCommand('AE02', [
+						['00000000', 8], // TC
+						[parsed_clip, false, 4]
+					]));
+				});
 				break;
 		}
 
