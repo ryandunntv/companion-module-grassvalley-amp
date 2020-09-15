@@ -40,27 +40,27 @@ class instance extends instance_skel {
 
 		this.transport_bits = {
 			PLAY: {
-				id: 0,
+				id: '0',
 				label: 'Playing',
 			},
 			RECORD: {
-				id: 1,
+				id: '1',
 				label: 'Recording',
 			},
 			FF: {
-				id: 2,
+				id: '2',
 				label: 'FF',
 			},
 			RW: {
-				id: 3,
+				id: '3',
 				label: 'RW',
 			},
 			STOP: {
-				id: 5, // Warning: this seems to always be 0 although documentation says it will be set
+				id: '5', // Warning: this seems to always be 0 although documentation says it will be set
 				label: 'Stopped'
 			},
 			UNKNOWN: {
-				id: -1,
+				id: '-1',
 				label: 'Unknown'
 			}
 		};
