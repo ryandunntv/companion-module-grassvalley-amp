@@ -85,9 +85,7 @@ class instance extends instance_skel {
 	}
 
 	init_tcp() {
-		if (this.socket !== undefined) {
-			this.destroy();
-		}
+		this.destroy();
 
 		if (this.config.host) {
 			this.socket = new tcp(this.config.host, 3811);
@@ -398,10 +396,11 @@ class instance extends instance_skel {
 		if (this.socket !== undefined) {
 			this.socket.send('STOP0000\n');
 			this.socket.destroy();
-			if (this.transport_timer) {
-				clearTimeout(this.transport_timer);
-			}
 			delete this.socket;
+		}
+
+		if (this.transport_timer) {
+			clearTimeout(this.transport_timer);
 		}
 
 		this.debug("destroy", this.id);
