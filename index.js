@@ -477,7 +477,7 @@ class instance extends instance_skel {
 				break;
 
 			case 'loadclip':
-				this.system.emit('variable_parse', opt.clipdd || opt.clip, (parsed_clip) => {
+				this.parseVariables(opt.clipdd || opt.clip, (parsed_clip) => {
 					this.sendCommand(this._buildCommand('4A14', [
 						[parsed_clip, false, 4]
 					]));
@@ -485,7 +485,7 @@ class instance extends instance_skel {
 				break;
 
 			case 'recordclip':
-				this.system.emit('variable_parse', opt.clip, (parsed_clip) => {
+				this.parseVariables(opt.clip, (parsed_clip) => {
 					this.sendCommand(this._buildCommand('AE02', [
 						['00000000', 8], // TC
 						[parsed_clip, false, 4]
