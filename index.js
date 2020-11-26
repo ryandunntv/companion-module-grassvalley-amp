@@ -415,9 +415,44 @@ class instance extends instance_skel {
 	}
 
 	actions(system) {
+		let speed_list = [
+			{id: '48', label: '0.32x'},
+			{id: '39', label: '0.16x'},
+			{id: '30', label: '0.8x'},
+			{id: '20', label: '0.4x'},
+			{id: '10', label: '0.2x'},
+			{id: '74', label: '2x'},
+			{id: '83', label: '4x'},
+			{id: '93', label: '8x'},
+			{id: '103', label: '16x'},
+			{id: '112', label: '32x'}
+		];
+
 		this.system.emit('instance_actions', this.id, {
 			'play': { label: 'Play' },
 			'stop': { label: 'Stop' },
+			'rw': {
+				label: 'Shuttle Reverse',
+				options: [
+					{
+						label: 'Speed',
+						id: 'speed',
+						type: 'dropdown',
+						choices: speed_list
+					}
+				]
+			},
+			'ff': {
+				label: 'Shuttle Forward',
+				options: [
+					{
+						label: 'Speed',
+						id: 'speed',
+						type: 'dropdown',
+						choices: speed_list
+					}
+				]
+			},
 			'eject': { label: 'Eject' },
 			'record': { label: 'Record' },
 			'loadclip': {
@@ -466,6 +501,14 @@ class instance extends instance_skel {
 
 			case 'stop':
 				this.sendCommand('2000');
+				break;
+
+			case 'rw':
+				this.sendCommand('2123' + parseInt(opt.speed).toString(16));
+				break;
+
+			case 'ff':
+				this.sendCommand('2113' + parseInt(opt.speed).toString(16));
 				break;
 
 			case 'eject':

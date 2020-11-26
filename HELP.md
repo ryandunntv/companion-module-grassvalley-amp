@@ -12,6 +12,8 @@ This module connects to devices that support the AMP protocol.
 * Stop
 * Eject
 * Record
+* Shuttle Reverse
+* Shuttle Forward
 * Load clip
 * Record clip - This creates and loads a clip for recording. To start the recording, enter the record command after sending this command. **WARNING** This command *will overwrite any clip already named what is specified currently in the bin* - there is not any error checking before running it by the device.
 
