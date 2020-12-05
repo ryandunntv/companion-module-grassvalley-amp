@@ -258,7 +258,7 @@ class instance extends instance_skel {
 
 		const channel = this.config.channel;
 
-		this.buffer = new Buffer('');
+		this.buffer = Buffer.from('');
 
 		if (channel !== undefined) {
 			this.waiting_for_crat = true;
