@@ -428,7 +428,7 @@ class instance extends instance_skel {
 			{id: '112', label: '32x'}
 		];
 
-		this.system.emit('instance_actions', this.id, {
+		this.setActions({
 			'play': { label: 'Play' },
 			'stop': { label: 'Stop' },
 			'rw': {
