@@ -11,12 +11,19 @@
 	"manufacturer": "Grass Valley",
 	"product": "AMP",
 	"shortname": "amp",
-	"homepage": "http://www.gvgdevelopers.com/concrete/apis/amp_protocol/",
+	"homepage": "https://github.com/bitfocus/companion-module-grassvalley-amp#readme",
 	"description": "Companion module for Grass Valley AMP protocol",
 	"main": "index.js",
 	"scripts": {
 		"test": "echo \"Error: no test specified\" && exit 1"
 	},
 	"author": "Håkon Nessjøen <haakon@bitfocus.io>",
-	"license": "MIT"
+	"license": "MIT",
+	"bugs": {
+		"url": "https://github.com/bitfocus/companion-module-grassvalley-amp/issues"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/bitfocus/companion-module-grassvalley-amp.git"
+	}
 }
