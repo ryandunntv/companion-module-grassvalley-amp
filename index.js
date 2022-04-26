@@ -68,6 +68,18 @@ class instance extends instance_skel {
 		this.actions(); // export actions
 	}
 
+	static GetUpgradeScripts() {
+		return [
+			instance_skel.CreateConvertToBooleanFeedbackUpgradeScript({
+				'transport': {
+					'bg': 'bgcolor',
+					'fg': 'color',
+					'text': 'text'
+				}
+			}),
+		]
+	}
+
 	updateConfig(config) {
 		let reconnect = this.config.host !== config.host || this.config.channel !== config.channel;
 
@@ -271,8 +283,14 @@ class instance extends instance_skel {
 	initFeedbacks() {
 		const feedbacks = {
 			transport: {
+				type: 'boolean',
 				label: 'Transport state changes',
 				description: 'Changes feedback based on transport state',
+				style: {
+					color: this.rgb(255,255,255),
+					bgcolor: this.rgb(255, 255, 255),
+					text: ''
+				},
 				options: [
 					{
 						type: 'dropdown',
@@ -280,26 +298,9 @@ class instance extends instance_skel {
 						id: 'transport_state',
 						default: this.transport_bits[this.current_transport_status].id,
 						choices: Object.values(this.transport_bits)
-					},
-					{
-						type: 'colorpicker',
-						label: 'Foreground color',
-						id: 'fg',
-						default: this.rgb(255, 255, 255)
-					},
-					{
-						type: 'colorpicker',
-						label: 'Background color',
-						id: 'bg',
-						default: this.rgb(255, 255, 255)
-					},
-					{
-						type: 'textinput',
-						label: 'Text',
-						id: 'text',
-						default: ''
 					}
-				]
+				],
+				callback: (feedback) => feedback.options.transport_state === this.transport_bits[this.current_transport_status].id
 			}
 		};
 
@@ -320,21 +321,6 @@ class instance extends instance_skel {
 
 		this.setVariableDefinitions(variables);
 		this.setVariable('transport', this.transport_bits[this.current_transport_status].label);
-	}
-
-	feedback(feedback, bank) {
-		if(feedback.type === 'transport' && feedback.options.transport_state === this.transport_bits[this.current_transport_status].id) {
-			let ret = {};
-			if(feedback.options.fg !== 16777215 || feedback.options.bg !== 16777215) {
-				ret.color = feedback.options.fg;
-				ret.bgcolor = feedback.options.bg;
-			}
-			if('text' in feedback.options && feedback.options.text !== '') {
-				ret.text = feedback.options.text;
-			}
-
-			return ret;
-		}
 	}
 
 	sendCommand(command) {
