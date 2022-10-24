@@ -10,13 +10,15 @@ export default [
     }),
 
     function(context, props) {
+        new_actions = []
+
         props.actions.forEach(x => {
             if (x.options && 'clipdd' in x.options) {
                 if ('clip' in x.options && x.options.clip == '') {
-                    x.options.clip = x.options.clipdd;
+                    x.options.clip = x.options.clipdd
                 }
 
-                delete x.options.clipdd;
+                delete x.options.clipdd
             }
 
             new_actions.push(x)
