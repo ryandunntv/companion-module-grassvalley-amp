@@ -1,29 +1,20 @@
 {
 	"name": "grassvalley-amp",
-	"legacy": [
-		"amp"
-	],
-	"version": "1.1.6",
-	"api_version": "1.0.0",
-	"keywords": [
-		"Protocol"
-	],
-	"manufacturer": "Grass Valley",
-	"product": "AMP",
-	"shortname": "amp",
-	"homepage": "https://github.com/bitfocus/companion-module-grassvalley-amp#readme",
-	"description": "Companion module for Grass Valley AMP protocol",
+	"version": "2.0.0",
 	"main": "index.js",
+	"type": "module",
 	"scripts": {
 		"test": "echo \"Error: no test specified\" && exit 1"
 	},
-	"author": "Håkon Nessjøen <haakon@bitfocus.io>",
 	"license": "MIT",
-	"bugs": {
-		"url": "https://github.com/bitfocus/companion-module-grassvalley-amp/issues"
-	},
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/bitfocus/companion-module-grassvalley-amp.git"
+	},
+	"dependencies": {
+		"@companion-module/base": "~0.6.1"
+	},
+	"devDependencies": {
+		"@companion-module/tools": "^0.4.1"
 	}
 }

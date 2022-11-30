@@ -1,5 +1,8 @@
-const tcp = require('../../tcp');
-const instance_skel = require('../../instance_skel');
+import { InstanceBase, Regex, TCPHelper, combineRgb, runEntrypoint } from '@companion-module/base'
+
+import UpgradeScripts from './upgrades.js'
+
+import { zpad, str2hex } from './helpers.js'
 
 /**
  * AMP Protocol documentation:
@@ -9,23 +12,18 @@ const instance_skel = require('../../instance_skel');
  * http://www.gvgdevelopers.com/concrete/index.php/download_file/-/view/10 (AMP Specification)
  */
 
-function zpad(data, length) {
-	return ('0'.repeat(length) + data).substr(0-length);
-};
+class GrassvalleyAmp extends InstanceBase {
+	async configUpdated(config) {
+		let reconnect = this.config.host !== config.host || this.config.channel !== config.channel;
 
-function str2hex(str) {
-	var result = '';
-
-	for (var i = 0; i < str.length; ++i) {
-		result += zpad(str.charCodeAt(i).toString(16), 2);
+		this.config = config;
+		if (reconnect) {
+			this.init_tcp();
+		}
 	}
 
-	return result;
-}
-
-class instance extends instance_skel {
-	constructor(system, id, config) {
-		super(system, id, config);
+	async init(config) {
+		this.config = config;
 
 		this.awaiting_reply = false;
 		this.command_queue = [];
@@ -34,9 +32,7 @@ class instance extends instance_skel {
 		this.current_transport_status = 'UNKNOWN';
 
 		// Number of ms to grab transport updates
-		this.defineConst('TRANSPORT_UPDATES', 2000);
-		// If we miss x status updates, let's attempt to reconnect
-		this.defineConst('TCP_TIMEOUT', this.TRANSPORT_UPDATES * 5);
+		this.TRANSPORT_UPDATES = 2000;
 
 		this.transport_bits = {
 			PLAY: {
@@ -66,31 +62,7 @@ class instance extends instance_skel {
 		};
 
 		this.actions(); // export actions
-	}
-
-	static GetUpgradeScripts() {
-		return [
-			instance_skel.CreateConvertToBooleanFeedbackUpgradeScript({
-				'transport': {
-					'bg': 'bgcolor',
-					'fg': 'color',
-					'text': 'text'
-				}
-			}),
-		]
-	}
-
-	updateConfig(config) {
-		let reconnect = this.config.host !== config.host || this.config.channel !== config.channel;
-
-		this.config = config;
-		if (reconnect) {
-			this.init_tcp();
-		}
-	}
-
-	init() {
-		this.status(this.STATE_UNKNOWN);
+		
 		this.init_tcp();
 		this.initFeedbacks();
 		this.initVariables();
@@ -98,9 +70,7 @@ class instance extends instance_skel {
 
 	init_tcp() {
 		if (this.socket !== undefined) {
-			this.socket.send('STOP0000\n');
-			this.socket.destroy();
-			delete this.socket;
+			this.destroy();
 		}
 
 		if (this.transport_timer) {
@@ -108,24 +78,15 @@ class instance extends instance_skel {
 		}
 
 		if (this.config.host) {
-			this.socket = new tcp(this.config.host, 3811);
-
-			this.socket.on('status_change', (status, message) => {
-				this.status(status, message);
-			});
+			this.socket = new TCPHelper(this.config.host, 3811);
 
 			this.socket.on('connect', () => {
-				this.socket.socket.setTimeout(this.TCP_TIMEOUT);
 				this.initAMPSocket();
+				this.updateStatus('ok')
 			});
 
 			this.socket.on('error', (err) => {
-				this.debug("Network error", err);
 				this.log('error',"Network error: " + err.message);
-			});
-
-			this.socket.socket.on('timeout', () => {
-				this.socket.socket.end();
 			});
 
 			this.socket.on('end', () => {
@@ -151,7 +112,7 @@ class instance extends instance_skel {
 						this.getFileList();
 					} else {
 						this.log('error', 'Unkown data received while connecting to device');
-						this.debug('Did not expect: ' + result);
+						this.log('debug', `Did not expect ${result}`);
 					}
 				} else if (this.awaiting_reply) {
 					if (this.buffer.length >= 4) {
@@ -207,18 +168,18 @@ class instance extends instance_skel {
 	handleListFirstID() {
 		let buffer = this.buffer.toString();
 
-		this.debug('handleListFirstID: ', this.buffer[1], ' == a');
+		this.log('debug', `handleListFirstID: ${this.buffer[1]}`);
 		if (buffer[1] == '0' && this.buffer.length >= 6) {
-			this.debug('no clips');
+			this.log('debug', 'no clips');
 			this.buffer = this.buffer.slice(6);
 		} else if (buffer[1] == '8' && this.buffer.length >= 22) {
-			this.debug('Clip 8 byte mode ' + Buffer.from(this.buffer.slice(4, 4 + 16).toString(), 'hex').toString());
+			this.log('debug', 'Clip 8 byte mode ' + Buffer.from(this.buffer.slice(4, 4 + 16).toString(), 'hex').toString());
 
 			this.files.push(Buffer.from(this.buffer.slice(4, 4 + 16).toString(), 'hex').toString());
 			this.buffer = this.buffer.slice(4 + 16 + 2);
 		} else if (buffer[1] == 'A' || buffer[1] == 'a' && this.buffer.length >= 12) {
 			var len = parseInt(buffer.substr(4,4), 16);
-			this.debug("Going to try to read " + len + " bytes of clips");
+			this.log('debug', `Going to try to read ${len} bytes of clips`);
 			var i = 0;
 
 			if (buffer.length < len*2) { return; }
@@ -226,7 +187,7 @@ class instance extends instance_skel {
 			while (len > 0 && 8+4+i < buffer.length) {
 				var len2 = parseInt(buffer.substr(8 + i, 4), 16);
 				var name = buffer.substr(8+i+4, len2 * 2);
-				this.debug("Clip: " + Buffer.from(name, 'hex').toString());
+				this.log('debug', 'Clip: ' + Buffer.from(name, 'hex').toString());
 				this.files.push(Buffer.from(name, 'hex').toString());
 				i += 4 + (len2 * 2);
 			}
@@ -256,14 +217,17 @@ class instance extends instance_skel {
 			} else {
 				this.current_transport_status = 'STOP';
 			}
-			this.setVariable('transport', this.transport_bits[this.current_transport_status].label);
+			this.setVariableValues({
+				transport: this.transport_bits[this.current_transport_status].label
+			});
+
 			this.checkFeedbacks('transport');
 		}
 
 		this.transport_timer = setTimeout(this.statusUpdates.bind(this), this.TRANSPORT_UPDATES);
 	}
 
-	initAMPSocket() {
+	async initAMPSocket() {
 		// We don't want to keep waiting for data that'll never come...
 		this.awaiting_reply = false;
 		this.command_queue = [];
@@ -274,7 +238,7 @@ class instance extends instance_skel {
 
 		if (channel !== undefined) {
 			this.waiting_for_crat = true;
-			this.socket.send('CRAT' + zpad(channel.length + 3, 4) + '2' + zpad(channel.length, 2) + channel + "\n");
+			await this.socket.send('CRAT' + zpad(channel.length + 3, 4) + '2' + zpad(channel.length, 2) + channel + "\n");
 
 			this.transport_timer = setTimeout(this.statusUpdates.bind(this), this.TRANSPORT_UPDATES);
 		}
@@ -284,12 +248,11 @@ class instance extends instance_skel {
 		const feedbacks = {
 			transport: {
 				type: 'boolean',
-				label: 'Transport state changes',
+				name: 'Transport state changes',
 				description: 'Changes feedback based on transport state',
 				style: {
-					color: this.rgb(255,255,255),
-					bgcolor: this.rgb(255, 255, 255),
-					text: ''
+					color: combineRgb(255, 255, 255),
+					bgcolor: combineRgb(51, 102, 0)
 				},
 				options: [
 					{
@@ -314,20 +277,22 @@ class instance extends instance_skel {
 	initVariables() {
 		const variables = [
 			{
-				label: 'Transport status',
-				name:  'transport'
+				name: 'Transport status',
+				variableId:  'transport'
 			}
 		];
 
 		this.setVariableDefinitions(variables);
-		this.setVariable('transport', this.transport_bits[this.current_transport_status].label);
+		this.setVariableValues({
+			transport: this.transport_bits[this.current_transport_status].label
+		});
 	}
 
 	sendCommand(command) {
 		if (!this.awaiting_reply) {
 			this._sendCommand(command);
 		} else {
-			this.debug('queueing command ' + command);
+			this.log('debug', `queueing command ${command}`);
 			this.command_queue.push(command);
 		}
 	}
@@ -340,29 +305,26 @@ class instance extends instance_skel {
 		return parseInt(length).toString(16);
 	}
 
-	_sendCommand(command) {
-		let send_command;
-
+	async _sendCommand(command) {
 		if (command.length > 9999) {
 			this.log('error', 'Internal error, command too long');
 			return;
 		}
 
-		if (this.socket !== undefined && this.socket.connected) {
+		if (this.socket !== undefined && this.socket.isConnected) {
 			this.awaiting_reply = true;
-			send_command = 'CMDS' + zpad(command.length, 4) + command;
-			this.debug('Sending command: ' + send_command);
-			this.socket.send(send_command + "\n");
+			let send_command = 'CMDS' + zpad(command.length, 4) + command;
+			this.log('debug', `Sending command: ${send_command}`);
+			await this.socket.send(send_command + "\n");
 		} else {
-			this.debug('Socket not connected :(');
+			this.log('debug', 'Socket not connected :(');
 		}
 	}
 
-	// Return config fields for web config
-	config_fields () {
+	getConfigFields () {
 		return [
 			{
-				type: 'text',
+				type: 'static-text',
 				id: 'info',
 				width: 12,
 				label: 'Information',
@@ -373,7 +335,7 @@ class instance extends instance_skel {
 				id: 'host',
 				label: 'Device IP',
 				width: 6,
-				regex: this.REGEX_IP
+				regex: Regex.IP
 			},
 			{
 				type: 'textinput',
@@ -386,9 +348,9 @@ class instance extends instance_skel {
 	}
 
 	// When module gets deleted
-	destroy() {
+	async destroy() {
 		if (this.socket !== undefined) {
-			this.socket.send('STOP0000\n');
+			await this.socket.send('STOP0000\n');
 			this.socket.destroy();
 			delete this.socket;
 		}
@@ -396,8 +358,6 @@ class instance extends instance_skel {
 		if (this.transport_timer) {
 			clearTimeout(this.transport_timer);
 		}
-
-		this.debug("destroy", this.id);
 	}
 
 	actions(system) {
@@ -414,116 +374,116 @@ class instance extends instance_skel {
 			{id: '112', label: '32x'}
 		];
 
-		this.setActions({
-			'play': { label: 'Play' },
-			'stop': { label: 'Stop' },
-			'rw': {
-				label: 'Shuttle Reverse',
+		this.setActionDefinitions({
+			play: {
+				name: 'Play',
+				options: [],
+				callback: this.sendCommand.bind(this, '2001')
+			},
+
+			stop: {
+				name: 'Stop',
+				options: [],
+				callback: this.sendCommand.bind(this, '2000')
+			},
+
+			rw: {
+				name: 'Shuttle Reverse',
 				options: [
 					{
 						label: 'Speed',
 						id: 'speed',
+						default: speed_list[5].id,
 						type: 'dropdown',
 						choices: speed_list
 					}
-				]
+				],
+				callback: (event) => {
+					this.sendCommand('2123' + parseInt(event.options.speed).toString(16))
+				}
 			},
-			'ff': {
-				label: 'Shuttle Forward',
+
+			ff: {
+				name: 'Shuttle Forward',
 				options: [
 					{
 						label: 'Speed',
 						id: 'speed',
+						default: speed_list[5].id,
 						type: 'dropdown',
 						choices: speed_list
 					}
-				]
+				],
+				callback: (event) => {
+					this.sendCommand('2113' + parseInt(event.options.speed).toString(16));
+				}
 			},
-			'eject': { label: 'Eject' },
-			'record': { label: 'Record' },
-			'loadclip': {
-				label: 'Load clip',
+
+			eject: {
+				name: 'Eject',
+				options: [],
+				callback: this.sendCommand.bind(this, '200f')
+			},
+
+			record: {
+				name: 'Record',
+				options: [],
+				callback: this.sendCommand.bind(this, '2002')
+			},
+
+			loadclip: {
+				name: 'Load clip',
+				description: 'Custom names with variables are allowed.',
 				options: [
 					{
 						label: 'Clip name',
 						id: 'clip',
-						type: 'textinput',
-						regex: '/^\\S.*$/'
-					},
-					{
-						label: 'Clip name',
-						id: 'clipdd',
 						type: 'dropdown',
+						default: '',
+						useVariables: true,
+						allowCustom: true,
+						regex: '/^\\S.*$/',
 						choices: [].concat(
-							[ {id: '', label: ' - None - '} ],
+							[ { id: '', label: ' - None - ' } ],
 							this.files.map((el) => {
-								return { id: el, label: el }
+								return {
+									id: el,
+									label: el
+								}
 							})
 						)
 					}
-				]
+				],
+				callback: async (event) => {
+					const clip_name = await this.parseVariablesInString(event.options.clipdd || event.options.clip);
+
+					this.sendCommand(this._buildCommand('4A14', [
+						[clip_name, false, 4]
+					]));
+				}
 			},
-			'recordclip': {
-				label: 'Record clip',
+
+			recordclip: {
+				name: 'Record clip',
 				options: [
 					{
 						label: 'Clip name',
 						id: 'clip',
 						type: 'textinput',
-						regex: '/^\\S.*$/'
+						regex: '/^\\S.*$/',
+						useVariables: true
 					}
-				]
-			}
-		});
-	}
+				],
+				callback: async (event) => {
+					const clip_name = await this.parseVariablesInString(event.options.clip);
 
-	action(action) {
-		let opt = action.options;
-
-		switch (action.action) {
-			case 'play':
-				this.sendCommand('2001');
-				break;
-
-			case 'stop':
-				this.sendCommand('2000');
-				break;
-
-			case 'rw':
-				this.sendCommand('2123' + parseInt(opt.speed).toString(16));
-				break;
-
-			case 'ff':
-				this.sendCommand('2113' + parseInt(opt.speed).toString(16));
-				break;
-
-			case 'eject':
-				this.sendCommand('200f');
-				break;
-
-			case 'record':
-				this.sendCommand('2002');
-				break;
-
-			case 'loadclip':
-				this.parseVariables(opt.clipdd || opt.clip, (parsed_clip) => {
-					this.sendCommand(this._buildCommand('4A14', [
-						[parsed_clip, false, 4]
-					]));
-				});
-				break;
-
-			case 'recordclip':
-				this.parseVariables(opt.clip, (parsed_clip) => {
 					this.sendCommand(this._buildCommand('AE02', [
 						['00000000', 8], // TC
-						[parsed_clip, false, 4]
+						[clip_name, false, 4]
 					]));
-				});
-				break;
-		}
-
-		this.debug('action():', action.action);
+				}
+			}
+		});
 	}
 
 	/**
@@ -553,4 +513,4 @@ class instance extends instance_skel {
 	}
 }
 
-exports = module.exports = instance;
+runEntrypoint(GrassvalleyAmp, UpgradeScripts)
