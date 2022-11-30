@@ -1,4 +1,4 @@
-import { InstanceBase, Regex, TCPHelper, runEntrypoint } from '@companion-module/base'
+import { InstanceBase, Regex, TCPHelper, combineRgb, runEntrypoint } from '@companion-module/base'
 
 import UpgradeScripts from './upgrades.js'
 
@@ -250,6 +250,10 @@ class GrassvalleyAmp extends InstanceBase {
 				type: 'boolean',
 				name: 'Transport state changes',
 				description: 'Changes feedback based on transport state',
+				style: {
+					color: combineRgb(255, 255, 255),
+					bgcolor: combineRgb(51, 102, 0)
+				},
 				options: [
 					{
 						type: 'dropdown',
