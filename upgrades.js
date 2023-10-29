@@ -10,7 +10,7 @@ export default [
     }),
 
     function(context, props) {
-        new_actions = []
+        const new_actions = []
 
         props.actions.forEach(x => {
             if (x.options && 'clipdd' in x.options) {

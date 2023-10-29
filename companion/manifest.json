@@ -3,7 +3,7 @@
 	"name": "grassvalley-amp",
 	"shortname": "amp",
 	"description": "Companion module for Grass Valley AMP protocol",
-	"version": "2.0.0",
+	"version": "2.0.1",
 	"license": "MIT",
 	"repository": "git+https://github.com/bitfocus/companion-module-grassvalley-amp.git",
 	"bugs": "https://github.com/bitfocus/companion-module-grassvalley-amp/issues",
