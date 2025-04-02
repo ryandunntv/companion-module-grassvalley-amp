@@ -78,7 +78,8 @@ class GrassvalleyAmp extends InstanceBase {
 		}
 
 		if (this.config.host) {
-			this.socket = new TCPHelper(this.config.host, 3811);
+			const port = parseInt(this.config.port, 10) || 3811;
+			this.socket = new TCPHelper(this.config.host, port);
 
 			this.socket.on('connect', () => {
 				this.initAMPSocket();
@@ -323,27 +324,35 @@ class GrassvalleyAmp extends InstanceBase {
 
 	getConfigFields () {
 		return [
-			{
+			  {
 				type: 'static-text',
 				id: 'info',
 				width: 12,
 				label: 'Information',
 				value: "This module connects to VTR's that support the AMP protocol"
-			},
-			{
+			  },
+			  {
 				type: 'textinput',
 				id: 'host',
 				label: 'Device IP',
 				width: 6,
 				regex: Regex.IP
-			},
-			{
+			  },
+			  {
+				type: 'textinput',
+				id: 'port',
+				label: 'Port',
+				width: 6,
+				default: '3811',
+				regex: Regex.PORT
+			  },
+			  {
 				type: 'textinput',
 				id: 'channel',
 				label: 'AMP Channel',
 				width: 6,
 				default: 'Vtr1'
-			}
+			  }
 		]
 	}
 

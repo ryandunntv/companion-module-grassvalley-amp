@@ -1,5 +1,7 @@
 ## AMP
 
+## USER-DEFINED PORT
+
 This module connects to devices that support the AMP protocol.
 
 ### Configuration
